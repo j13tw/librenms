@@ -2,8 +2,12 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+
 class Sensor extends DeviceRelatedModel
 {
+    use HasFactory;
+
     public $timestamps = false;
     protected $primaryKey = 'sensor_id';
     protected static $icons = [
@@ -21,6 +25,7 @@ class Sensor extends DeviceRelatedModel
         'frequency'            => 'line-chart',
         'humidity'             => 'tint',
         'load'                 => 'percent',
+        'loss'                 => 'percentage',
         'power'                => 'power-off',
         'power_consumed'       => 'plug',
         'power_factor'         => 'calculator',
@@ -33,6 +38,7 @@ class Sensor extends DeviceRelatedModel
         'temperature'          => 'thermometer-three-quarters',
         'voltage'              => 'bolt',
         'waterflow'            => 'tint',
+        'percent'              => 'percent',
     ];
 
     // ---- Helper Functions ----
@@ -45,6 +51,7 @@ class Sensor extends DeviceRelatedModel
             'eer' => 'EER',
             'snr' => 'SNR',
         ]);
+
         return $nice->get($this->sensor_class, ucwords(str_replace('_', ' ', $this->sensor_class)));
     }
 

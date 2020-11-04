@@ -182,22 +182,44 @@ set snmp view mysnmpv3view oid iso include
 #### RouterOS 6.x
 
 CLI SNMP v2 Configuration
+
 ```
 /snmp community
 set [ find default=yes ] read-access=no
-add addresses=<SRC IP/NETWORK> name=<COMMUNITY>
+add addresses=<ALLOWED-SRC-IPs/NETMASK> name=<COMMUNITY>
 /snmp
 set contact="<NAME>" enabled=yes engine-id=<ENGINE ID> location="<LOCALTION>"
 ```
 Notes:
+
 * About the snmp community commands:
     * The commands change the default snmp community.  It is probably possible to create a new one instead.
-    * <SRC IP/NETWORK> specify the address and host (not network) netmask of the LibreNMS server.  Example: 192.168.8.71/32
+    * <ALLOWED-SRC-IPs/NETMASK> specify the address and host (not network) netmask of the LibreNMS server.  Example: 192.168.8.71/32
     * trap-version=2 must also be specified if some other trap-version has been set
     * trap-interfaces may also be used to limit the interfaces the router listens on
 * About the snmp command:
     * contact, engine-id and location are optional
     * trap-community is probably required if a new snmp community has been created.
+
+CLI SNMP v3 Configuration for *authPriv*
+```
+/snmp community 
+add name="<COMMUNITY>" addresses="<ALLOWED-SRC-IPs/NETMASK>" 
+set "<COMMUNITY>" authentication-password="<AUTH_PASS>" authentication-protocol=MD5
+set "<COMMUNITY>" encryption-password="<ENCRYP_PASS>" encryption-protocol=AES
+set "<COMMUNITY>" read-access=yes write-access=no security=private
+#Disable public SNMP
+set public read-access=no write-access=no security=private
+/snmp
+set contact="<NAME>" enabled=yes engine-id="<ENGINE ID>" location="<LOCALTION>"
+```
+Notes:
+
+* Use password with length of min 8 chars
+
+Notes for both SNMP v2 and v3
+
+* In some cases of advanced routing one may need to set explicitly the source IP address from which the SNMP daemon will reply - `/snmp set src-address=<SELF_IP_ADDRESS>`
 
 ### Palo Alto
 
@@ -345,12 +367,11 @@ syslocation Rack, Room, Building, City, Country [GPSX,Y]
 syscontact Your Name <your@email.address>
 
 #Distro Detection
-extend .1.3.6.1.4.1.2021.7890.1 distro /usr/bin/distro
-
+extend distro /usr/bin/distro
 #Hardware Detection (uncomment to enable)
-#extend .1.3.6.1.4.1.2021.7890.2 hardware '/bin/cat /sys/devices/virtual/dmi/id/product_name'
-#extend .1.3.6.1.4.1.2021.7890.3 manufacturer '/bin/cat /sys/devices/virtual/dmi/id/sys_vendor'
-#extend .1.3.6.1.4.1.2021.7890.4 serial '/bin/cat /sys/devices/virtual/dmi/id/product_serial'
+#extend hardware '/bin/cat /sys/devices/virtual/dmi/id/product_name'
+#extend manufacturer '/bin/cat /sys/devices/virtual/dmi/id/sys_vendor'
+#extend serial '/bin/cat /sys/devices/virtual/dmi/id/product_serial'
 ```
 
 **NOTE**: On some systems the snmpd is running as its own user, which
@@ -358,6 +379,13 @@ means it can't read `/sys/devices/virtual/dmi/id/product_serial` which
 is mode 0400. One solution is to include `@reboot chmod 444
 /sys/devices/virtual/dmi/id/product_serial` in the crontab for root or
 equivalent.
+
+Non-x86 or SMBIOS-based systems, such as ARM-based Raspberry Pi units should
+query device tree locations for this metadata, for example:
+```
+extend hardware '/bin/cat /sys/firmware/devicetree/base/model'
+extend serial '/bin/cat /sys/firmware/devicetree/base/serial-number'
+```
 
 The LibreNMS server include a copy of this example here:
 
@@ -381,7 +409,7 @@ line to create SNMPV3 User (replace username and passwords with your
 own):
 
 ```
-createUser authPrivUser MD5 "authPassword" DES "privPassword"
+createUser authPrivUser SHA "authPassword" AES "privPassword"
 ```
 
 Make sure the agent listens to all interfaces by adding the following

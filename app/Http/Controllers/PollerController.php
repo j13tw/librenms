@@ -8,6 +8,7 @@ use App\Models\PollerCluster;
 use App\Models\PollerGroup;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use LibreNMS\Config;
 
 class PollerController extends Controller
@@ -21,14 +22,18 @@ class PollerController extends Controller
 
     public function logTab(Request $request)
     {
+        $this->authorize('viewAny', PollerCluster::class);
+
         return view('poller.log', [
             'current_tab' => 'log',
-            'filter' => $request->input('filter', 'active')
+            'filter' => $request->input('filter', 'active'),
         ]);
     }
 
     public function groupsTab()
     {
+        $this->authorize('manage', PollerCluster::class);
+
         return view('poller.groups', [
             'current_tab' => 'groups',
             'poller_groups' => PollerGroup::query()->withCount('devices')->get(),
@@ -39,6 +44,8 @@ class PollerController extends Controller
 
     public function pollerTab()
     {
+        $this->authorize('viewAny', PollerCluster::class);
+
         return view('poller.poller', [
             'current_tab' => 'poller',
             'pollers' => $this->poller(),
@@ -46,8 +53,22 @@ class PollerController extends Controller
         ]);
     }
 
+    public function settingsTab()
+    {
+        $this->authorize('manage', PollerCluster::class);
+        $pollerClusters = PollerCluster::all()->keyBy('id');
+
+        return view('poller.settings', [
+            'current_tab' => 'settings',
+            'settings' => $this->pollerSettings($pollerClusters),
+            'poller_cluster' => $pollerClusters,
+        ]);
+    }
+
     public function performanceTab()
     {
+        $this->authorize('viewAny', PollerCluster::class);
+
         return view('poller.performance', ['current_tab' => 'performance']);
     }
 
@@ -84,5 +105,12 @@ class PollerController extends Controller
         }
 
         return 'success';
+    }
+
+    private function pollerSettings($pollers): Collection
+    {
+        $groups = PollerGroup::list();
+
+        return $pollers->map->configDefinition($groups);
     }
 }

@@ -17,7 +17,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * @package    LibreNMS
  * @link       http://librenms.org
  * @copyright  2020 Tony Murray
  * @author     Tony Murray <murraytony@gmail.com>
@@ -33,7 +32,7 @@ class UnserializableRouteCache extends \Exception implements UpgradeableExceptio
     protected $cli_php_version;
     protected $web_php_version;
 
-    public function __construct($message = "", $code = 0, Throwable $previous = null, $cli_php_version = null, $web_php_version = null)
+    public function __construct($message = '', $code = 0, Throwable $previous = null, $cli_php_version = null, $web_php_version = null)
     {
         $this->cli_php_version = $cli_php_version;
         $this->web_php_version = $web_php_version;
@@ -67,8 +66,8 @@ class UnserializableRouteCache extends \Exception implements UpgradeableExceptio
      */
     public function render(\Illuminate\Http\Request $request)
     {
-        $title = __('Error caused by PHP version mismatch');
-        $message = __('The version of PHP your webserver is running (:web_version) does not match the CLI version (:cli_version).', ['cli_version' => $this->cli_php_version, 'web_version' => $this->web_php_version]);
+        $title = trans('exceptions.unserializable_route_cache.title');
+        $message = trans('exceptions.unserializable_route_cache.message', ['cli_version' => $this->cli_php_version, 'web_version' => $this->web_php_version]);
 
         return $request->wantsJson() ? response()->json([
             'status' => 'error',

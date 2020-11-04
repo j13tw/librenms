@@ -9,13 +9,18 @@ import threading
 import sys
 import time
 
+try:
+    import psutil
+except ImportError:
+    pass
+
 from datetime import timedelta
 from datetime import datetime
 from logging import debug, info, warning, error, critical, exception
 from platform import python_version
 from time import sleep
 from socket import gethostname
-from signal import signal, SIGTERM
+from signal import signal, SIGTERM, SIGQUIT, SIGINT, SIGHUP, SIGCHLD, SIG_DFL
 from uuid import uuid1
 
 
@@ -59,7 +64,7 @@ class ServiceConfig:
     services = PollerConfig(8, 300)
     discovery = PollerConfig(16, 21600)
     billing = PollerConfig(2, 300, 60)
-    ping = PollerConfig(1, 120)
+    ping = PollerConfig(1, 60)
     down_retry = 60
     update_enabled = True
     update_frequency = 86400
@@ -118,7 +123,7 @@ class ServiceConfig:
         self.alerting.enabled = config.get('service_alerting_enabled', True)
         self.alerting.frequency = config.get('service_alerting_frequency', ServiceConfig.alerting.frequency)
         self.ping.enabled = config.get('service_ping_enabled', False)
-        self.ping.frequency = config.get('ping_rrd_step', ServiceConfig.billing.calculate)
+        self.ping.frequency = config.get('ping_rrd_step', ServiceConfig.ping.frequency)
         self.down_retry = config.get('service_poller_down_retry', ServiceConfig.down_retry)
         self.log_level = config.get('service_loglevel', ServiceConfig.log_level)
         self.update_enabled = config.get('service_update_enabled', ServiceConfig.update_enabled)
@@ -155,10 +160,72 @@ class ServiceConfig:
                 error("Unknown log level {}, must be one of 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'".format(self.log_level))
                 logging.getLogger().setLevel(logging.INFO)
 
+    def load_poller_config(self, db):
+        try:
+            settings = {}
+            cursor = db.query('SELECT * FROM `poller_cluster` WHERE `node_id`=%s', self.node_id)
+            if cursor.rowcount == 0:
+                return
+
+            for index, setting in enumerate(cursor.fetchone()):
+                name = cursor.description[index][0]
+                settings[name] = setting
+
+            if settings['poller_name'] is not None:
+                self.set_name(settings['poller_name'])
+            if settings['poller_groups'] is not None:
+                self.group = ServiceConfig.parse_group(settings['poller_groups'])
+            if settings['poller_enabled'] is not None:
+                self.poller.enabled = settings['poller_enabled']
+            if settings['poller_frequency'] is not None:
+                self.poller.frequency = settings['poller_frequency']
+            if settings['poller_workers'] is not None:
+                self.poller.workers = settings['poller_workers']
+            if settings['poller_down_retry'] is not None:
+                self.down_retry = settings['poller_down_retry']
+            if settings['discovery_enabled'] is not None:
+                self.discovery.enabled = settings['discovery_enabled']
+            if settings['discovery_frequency'] is not None:
+                self.discovery.frequency = settings['discovery_frequency']
+            if settings['discovery_workers'] is not None:
+                self.discovery.workers = settings['discovery_workers']
+            if settings['services_enabled'] is not None:
+                self.services.enabled = settings['services_enabled']
+            if settings['services_frequency'] is not None:
+                self.services.frequency = settings['services_frequency']
+            if settings['services_workers'] is not None:
+                self.services.workers = settings['services_workers']
+            if settings['billing_enabled'] is not None:
+                self.billing.enabled = settings['billing_enabled']
+            if settings['billing_frequency'] is not None:
+                self.billing.frequency = settings['billing_frequency']
+            if settings['billing_calculate_frequency'] is not None:
+                self.billing.calculate = settings['billing_calculate_frequency']
+            if settings['alerting_enabled'] is not None:
+                self.alerting.enabled = settings['alerting_enabled']
+            if settings['alerting_frequency'] is not None:
+                self.alerting.frequency = settings['alerting_frequency']
+            if settings['ping_enabled'] is not None:
+                self.ping.enabled = settings['ping_enabled']
+            if settings['ping_frequency'] is not None:
+                self.ping.frequency = settings['ping_frequency']
+            if settings['update_enabled'] is not None:
+                self.update_enabled = settings['update_enabled']
+            if settings['update_frequency'] is not None:
+                self.update_frequency = settings['update_frequency']
+            if settings['loglevel'] is not None:
+                self.log_level = settings['loglevel']
+            if settings['watchdog_enabled'] is not None:
+                self.watchdog_enabled = settings['watchdog_enabled']
+            if settings['watchdog_log'] is not None:
+                self.watchdog_logfile = settings['watchdog_log']
+        except pymysql.err.Error:
+            warning('Unable to load poller (%s) config', self.node_id)
+
     def _get_config_data(self):
         try:
             import dotenv
-            env_path =  "{}/.env".format(self.BASE_DIR)
+            env_path = "{}/.env".format(self.BASE_DIR)
             info("Attempting to load .env from '%s'", env_path)
             dotenv.load_dotenv(dotenv_path=env_path, verbose=True)
 
@@ -196,20 +263,24 @@ class Service:
     config = ServiceConfig()
     _fp = False
     _started = False
+    start_time = 0
     queue_managers = {}
     poller_manager = None
     discovery_manager = None
     last_poll = {}
+    reap_flag = False
     terminate_flag = False
+    reload_flag = False
     db_failures = 0
 
     def __init__(self):
+        self.start_time = time.time()
         self.config.populate()
-        threading.current_thread().name = self.config.name  # rename main thread
-
-        self.attach_signals()
-
         self._db = LibreNMS.DB(self.config)
+        self.config.load_poller_config(self._db)
+
+        threading.current_thread().name = self.config.name  # rename main thread
+        self.attach_signals()
 
         self._lm = self.create_lock_manager()
         self.daily_timer = LibreNMS.RecurringTimer(self.config.update_frequency, self.run_maintenance, 'maintenance')
@@ -221,9 +292,38 @@ class Service:
             info("Watchdog is disabled.")
         self.is_master = False
 
+    def service_age(self):
+        return time.time() - self.start_time
+
     def attach_signals(self):
         info("Attaching signal handlers on thread %s", threading.current_thread().name)
         signal(SIGTERM, self.terminate)  # capture sigterm and exit gracefully
+        signal(SIGQUIT, self.terminate)  # capture sigquit and exit gracefully
+        signal(SIGINT, self.terminate)  # capture sigint and exit gracefully
+        signal(SIGHUP, self.reload)  # capture sighup and restart gracefully
+
+        if 'psutil' not in sys.modules:
+            warning("psutil is not available, polling gap possible")
+        else:
+            signal(SIGCHLD, self.reap)  # capture sigchld and reap the process
+
+    def reap_psutil(self):
+        """
+        A process from a previous invocation is trying to report its status
+        """
+        # Speed things up by only looking at direct zombie children
+        for p in psutil.Process().children(recursive=False):
+            try:
+                cmd = p.cmdline()  # cmdline is uncached, so needs to go here to avoid NoSuchProcess
+                status = p.status()
+
+                if status == psutil.STATUS_ZOMBIE:
+                    pid = p.pid
+                    r = os.waitpid(p.pid, os.WNOHANG)
+                    warning('Reaped long running job "%s" in state %s with PID %d - job returned %d', cmd, status,  r[0], r[1])
+            except (OSError, psutil.NoSuchProcess):
+                # process was already reaped
+                continue
 
     def start(self):
         debug("Performing startup checks...")
@@ -268,6 +368,17 @@ class Service:
         # Main dispatcher loop
         try:
             while not self.terminate_flag:
+                if self.reload_flag:
+                    info("Picked up reload flag, calling the reload process")
+                    self.restart()
+
+                if self.reap_flag:
+                    self.reap_psutil()
+
+                    # Re-arm the signal handler
+                    signal(SIGCHLD, self.reap)
+                    self.reap_flag = False
+
                 master_lock = self._acquire_master()
                 if master_lock:
                     if not self.is_master:
@@ -330,7 +441,7 @@ class Service:
             result = self._db.query('''SELECT `device_id`,
                   `poller_group`,
                   COALESCE(`last_polled` <= DATE_ADD(DATE_ADD(NOW(), INTERVAL -%s SECOND), INTERVAL `last_polled_timetaken` SECOND), 1) AS `poll`,
-                  IF(snmp_disable=1 OR status=0, 0, COALESCE(`last_discovered` <= DATE_ADD(DATE_ADD(NOW(), INTERVAL -%s SECOND), INTERVAL `last_discovered_timetaken` SECOND), 1)) AS `discover`
+                  IF(snmp_disable=1 OR status=0, 0, IF (%s < `last_discovered_timetaken` * 1.25, 0, COALESCE(`last_discovered` <= DATE_ADD(DATE_ADD(NOW(), INTERVAL -%s SECOND), INTERVAL `last_discovered_timetaken` SECOND), 1))) AS `discover`
                 FROM `devices`
                 WHERE `disabled` = 0 AND (
                     `last_polled` IS NULL OR
@@ -338,7 +449,7 @@ class Service:
                     `last_polled` <= DATE_ADD(DATE_ADD(NOW(), INTERVAL -%s SECOND), INTERVAL `last_polled_timetaken` SECOND) OR
                     `last_discovered` <= DATE_ADD(DATE_ADD(NOW(), INTERVAL -%s SECOND), INTERVAL `last_discovered_timetaken` SECOND)
                 )
-                ORDER BY `last_polled_timetaken` DESC''', (poller_find_time, discovery_find_time, poller_find_time, discovery_find_time))
+                ORDER BY `last_polled_timetaken` DESC''', (poller_find_time, self.service_age(), discovery_find_time, poller_find_time, discovery_find_time))
             self.db_failures = 0
             return result
         except pymysql.err.Error:
@@ -367,8 +478,13 @@ class Service:
             sleep(wait)
 
         info("Running maintenance tasks")
-        output = LibreNMS.call_script('daily.sh')
-        info("Maintenance tasks complete\n{}".format(output))
+        try:
+            output = LibreNMS.call_script('daily.sh')
+            info("Maintenance tasks complete\n{}".format(output))
+        except subprocess.CalledProcessError as e:
+            error("Error in daily.sh:\n" + (e.output.decode() if e.output is not None else 'No output'))
+
+        self._lm.unlock('schema-update', self.config.unique_name)
 
         self.restart()
 
@@ -393,12 +509,12 @@ class Service:
             if self.config.distributed:
                 critical("ERROR: Redis connection required for distributed polling")
                 critical("Please install redis-py, either through your os software repository or from PyPI")
-                sys.exit(2)
+                self.exit(2)
         except Exception as e:
             if self.config.distributed:
                 critical("ERROR: Redis connection required for distributed polling")
                 critical("Could not connect to Redis. {}".format(e))
-                sys.exit(2)
+                self.exit(2)
 
         return LibreNMS.ThreadingLock()
 
@@ -413,26 +529,54 @@ class Service:
             return
 
         info('Restarting service... ')
-        self._stop_managers_and_wait()
+
+        if 'psutil' not in sys.modules:
+            warning("psutil is not available, polling gap possible")
+            self._stop_managers_and_wait()
+        else:
+            self._stop_managers()
         self._release_master()
 
         python = sys.executable
+        sys.stdout.flush()
         os.execl(python, python, *sys.argv)
 
-    def terminate(self, _unused=None, _=None):
+    def reap(self, signalnum=None, flag=None):
+        """
+        Handle a set the reload flag to begin a clean restart
+        :param signalnum: UNIX signal number
+        :param flag: Flags accompanying signal
+        """
+        handler = signal(SIGCHLD, SIG_DFL)
+        if handler == SIG_DFL:
+            # signal is already being handled, bail out as this handler is not reentrant - the kernel will re-raise the signal later
+            return
+
+        self.reap_flag = True
+
+    def reload(self, signalnum=None, flag=None):
+        """
+        Handle a set the reload flag to begin a clean restart
+        :param signalnum: UNIX signal number
+        :param flag: Flags accompanying signal
+        """
+        info("Received signal on thread %s, handling", threading.current_thread().name)
+        self.reload_flag = True
+
+    def terminate(self, signalnum=None, flag=None):
         """
         Handle a set the terminate flag to begin a clean shutdown
-        :param _unused:
-        :param _:
+        :param signalnum: UNIX signal number
+        :param flag: Flags accompanying signal
         """
-        info("Received SIGTERM on thead %s, handling", threading.current_thread().name)
+        info("Received signal on thread %s, handling", threading.current_thread().name)
         self.terminate_flag = True
 
-    def shutdown(self, _unused=None, _=None):
+    def shutdown(self, signalnum=None, flag=None):
         """
         Stop and exit, waiting for all child processes to exit.
-        :param _unused:
-        :param _:
+        :param signalnum: UNIX signal number
+        :param flag: Flags accompanying signal
         """
         info('Shutting down, waiting for running jobs to complete...')
 
@@ -448,7 +592,7 @@ class Service:
 
         # try to release master lock
         info('Shutdown of %s/%s complete', os.getpid(), threading.current_thread().name)
-        sys.exit(0)
+        self.exit(0)
 
     def start_dispatch_timers(self):
         """
@@ -471,13 +615,16 @@ class Service:
             except AttributeError:
                 pass
 
+    def _stop_managers(self):
+        for manager in self.queue_managers.values():
+            manager.stop()
+
     def _stop_managers_and_wait(self):
         """
         Stop all QueueManagers, and wait for their processing threads to complete.
         We send the stop signal to all QueueManagers first, then wait for them to finish.
         """
-        for manager in self.queue_managers.values():
-            manager.stop()
+        self._stop_managers()
 
         for manager in self.queue_managers.values():
             manager.stop_and_wait()
@@ -497,7 +644,7 @@ class Service:
             fcntl.lockf(self._fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except IOError:
             warning("Another instance is already running, quitting.")
-            exit(2)
+            self.exit(2)
 
     def log_performance_stats(self):
         info("Counting up time spent polling")
@@ -544,3 +691,6 @@ class Service:
         else:
             info("Log file updated {}s ago".format(int(logfile_mdiff)))
 
+    def exit(self, code=0):
+        sys.stdout.flush()
+        sys.exit(code)

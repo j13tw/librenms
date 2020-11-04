@@ -17,7 +17,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * @package    LibreNMS
  * @link       http://librenms.org
  * @copyright  2020 Tony Murray
  * @author     Tony Murray <murraytony@gmail.com>
@@ -39,7 +38,7 @@ class OS
      */
     public static function loadDefinition($os)
     {
-        if (!Config::get("os.$os.definition_loaded")) {
+        if (! Config::get("os.$os.definition_loaded")) {
             $yaml_file = base_path("/includes/definitions/$os.yaml");
             if (file_exists($yaml_file)) {
                 $os_def = Yaml::parse(file_get_contents($yaml_file));
@@ -95,18 +94,19 @@ class OS
         $cache_file = "$install_dir/cache/os_defs.cache";
         $cache_keep_time = Config::get('os_def_cache_time', 86400) - 7200; // 2hr buffer
 
-        if ($force === true || !is_file($cache_file) || time() - filemtime($cache_file) > $cache_keep_time) {
+        if ($force === true || ! is_file($cache_file) || time() - filemtime($cache_file) > $cache_keep_time) {
             Log::debug('Updating os_def.cache');
 
             // remove previously cached os settings and replace with user settings
             $config = ['os' => []]; // local $config variable, not global
-            include "$install_dir/config.php"; // FIXME load db settings too or don't load config.php
+            @include "$install_dir/config.php"; // FIXME load db settings too or don't load config.php
             Config::set('os', $config['os']);
 
             // load the os defs fresh from cache (merges with existing OS settings)
             self::loadAllDefinitions(false, false);
 
             file_put_contents($cache_file, serialize(Config::get('os')));
+
             return true;
         }
 

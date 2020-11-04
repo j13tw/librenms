@@ -2,9 +2,9 @@
 
 namespace App\Models;
 
-use DB;
 use Fico7489\Laravel\Pivot\Traits\PivotEventTrait;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Str;
@@ -19,7 +19,7 @@ use Permissions;
 
 class Device extends BaseModel
 {
-    use PivotEventTrait;
+    use PivotEventTrait, HasFactory;
 
     public $timestamps = false;
     protected $primaryKey = 'device_id';
@@ -45,7 +45,7 @@ class Device extends BaseModel
      */
     public static function pollerTarget($device)
     {
-        if (!is_array($device)) {
+        if (! is_array($device)) {
             $ret = static::where('hostname', $device)->first(['hostname', 'overwrite_ip']);
             if (empty($ret)) {
                 return $device;
@@ -58,12 +58,13 @@ class Device extends BaseModel
         } else {
             return $device['hostname'];
         }
+
         return $overwrite_ip ?: $hostname;
     }
 
     public static function findByIp($ip)
     {
-        if (!IP::isValid($ip)) {
+        if (! IP::isValid($ip)) {
             return null;
         }
 
@@ -133,25 +134,25 @@ class Device extends BaseModel
 
     public function isUnderMaintenance()
     {
+        if (! $this->device_id) {
+            return false;
+        }
+
         $query = AlertSchedule::isActive()
-            ->join('alert_schedulables', 'alert_schedule.schedule_id', 'alert_schedulables.schedule_id')
-            ->where(function ($query) {
-                $query->where(function ($query) {
-                    $query->where('alert_schedulable_type', 'device')
-                        ->where('alert_schedulable_id', $this->device_id);
+            ->where(function (Builder $query) {
+                $query->whereHas('devices', function (Builder $query) {
+                    $query->where('alert_schedulables.alert_schedulable_id', $this->device_id);
                 });
 
                 if ($this->groups) {
-                    $query->orWhere(function ($query) {
-                        $query->where('alert_schedulable_type', 'device_group')
-                            ->whereIn('alert_schedulable_id', $this->groups->pluck('id'));
+                    $query->orWhereHas('deviceGroups', function (Builder $query) {
+                        $query->whereIn('alert_schedulables.alert_schedulable_id', $this->groups->pluck('id'));
                     });
                 }
 
                 if ($this->location) {
-                    $query->orWhere(function ($query) {
-                        $query->where('alert_schedulable_type', 'location')
-                            ->where('alert_schedulable_id', $this->location->id);
+                    $query->orWhereHas('locations', function (Builder $query) {
+                        $query->where('alert_schedulables.alert_schedulable_id', $this->location->id);
                     });
                 }
             });
@@ -178,6 +179,7 @@ class Device extends BaseModel
         $length = \LibreNMS\Config::get('shorthost_target_length', $length);
         if ($length < strlen($name)) {
             $take = substr_count($name, '.', 0, $length) + 1;
+
             return implode('.', array_slice(explode('.', $name), 0, $take));
         }
 
@@ -192,7 +194,7 @@ class Device extends BaseModel
      */
     public function canAccess($user)
     {
-        if (!$user) {
+        if (! $user) {
             return false;
         }
 
@@ -203,9 +205,11 @@ class Device extends BaseModel
         return Permissions::canAccessDevice($this->device_id, $user->user_id);
     }
 
-    public function formatUptime($short = false)
+    public function formatDownUptime($short = false)
     {
-        return Time::formatInterval($this->uptime, $short);
+        $time = ($this->status == 1) ? $this->uptime : time() - strtotime($this->last_polled);
+
+        return Time::formatInterval($time, $short);
     }
 
     /**
@@ -231,18 +235,6 @@ class Device extends BaseModel
     }
 
     /**
-     * Get list of enabled graphs for this device.
-     *
-     * @return \Illuminate\Support\Collection
-     */
-    public function graphs()
-    {
-        return DB::table('device_graphs')
-            ->where('device_id', $this->device_id)
-            ->pluck('graph');
-    }
-
-    /**
      * Update the max_depth field based on parents
      * Performs SQL query, so make sure all parents are saved first
      *
@@ -252,7 +244,7 @@ class Device extends BaseModel
     {
         // optimize for memory instead of time
         $query = $this->parents()->getQuery();
-        if (!is_null($exclude)) {
+        if (! is_null($exclude)) {
             $query->where('device_id', '!=', $exclude);
         }
 
@@ -276,7 +268,6 @@ class Device extends BaseModel
      * Standalone is a special case where the device has no parents or children and is denoted by a max_depth of 0
      *
      * Only checks on root nodes (where max_depth is 1 or 0)
-     *
      */
     public function validateStandalone()
     {
@@ -300,12 +291,13 @@ class Device extends BaseModel
             return $item->attrib_type === $name;
         });
 
-        if (!$attrib) {
+        if (! $attrib) {
             $attrib = new DeviceAttrib(['attrib_type' => $name]);
             $this->attribs->push($attrib);
         }
 
         $attrib->attrib_value = $value;
+
         return (bool) $this->attribs()->save($attrib);
     }
 
@@ -320,6 +312,7 @@ class Device extends BaseModel
             // only forget the attrib_index after delete, otherwise delete() will fail fatally with:
             // Symfony\\Component\\Debug\Exception\\FatalThrowableError(code: 0):  Call to a member function delete() on null
             $this->attribs->forget($attrib_index);
+
             return $deleted;
         }
 
@@ -532,6 +525,11 @@ class Device extends BaseModel
         return $this->hasMany(\App\Models\Eventlog::class, 'device_id', 'device_id');
     }
 
+    public function graphs()
+    {
+        return $this->hasMany(\App\Models\DeviceGraph::class, 'device_id');
+    }
+
     public function groups()
     {
         return $this->belongsToMany(\App\Models\DeviceGroup::class, 'device_group_device', 'device_id', 'device_group_id');
@@ -564,13 +562,14 @@ class Device extends BaseModel
 
     public function muninPlugins()
     {
-        return $this->hasMany('App\Models\MuninPlugin', 'device_id');
+        return $this->hasMany(\App\Models\MuninPlugin::class, 'device_id');
     }
 
     public function ospfInstances()
     {
         return $this->hasMany(\App\Models\OspfInstance::class, 'device_id');
     }
+
     public function ospfNbrs()
     {
         return $this->hasMany(\App\Models\OspfNbr::class, 'device_id');

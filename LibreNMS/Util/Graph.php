@@ -17,7 +17,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * @package    LibreNMS
  * @link       http://librenms.org
  * @copyright  2018 Tony Murray
  * @author     Tony Murray <murraytony@gmail.com>
@@ -55,7 +54,7 @@ class Graph
 
         if ($device != null) {
             // find the MIB subtypes
-            $graphs = $device->graphs();
+            $graphs = $device->graphs->pluck('graph');
 
             foreach (Config::get('graph_types') as $type => $type_data) {
                 foreach (array_keys($type_data) as $subtype) {
@@ -67,6 +66,7 @@ class Graph
         }
 
         sort($types);
+
         return $types;
     }
 
@@ -93,6 +93,7 @@ class Graph
         }
 
         $os_group = Config::getOsSetting($device->os, 'group');
+
         return Config::get("os_group.$os_group.over", Config::get('os.default.over'));
     }
 }

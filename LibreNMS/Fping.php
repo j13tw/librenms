@@ -17,7 +17,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * @package    LibreNMS
  * @link       http://librenms.org
  * @copyright  2020 Tony Murray
  * @author     Tony Murray <murraytony@gmail.com>
@@ -42,13 +41,17 @@ class Fping
      */
     public function ping($host, $count = 3, $interval = 1000, $timeout = 500, $address_family = 'ipv4')
     {
-        // Default to ipv4
-        $fping_name = $address_family == 'ipv6' ? 'fping6' : 'fping';
         $interval = max($interval, 20);
 
+        $fping = Config::get('fping');
+        $cmd = [$fping];
+        if ($address_family == 'ipv6') {
+            $fping6 = Config::get('fping6');
+            $cmd = is_executable($fping6) ? [$fping6] : [$fping, '-6'];
+        }
+
         // build the command
-        $cmd = [
-            Config::get($fping_name, $fping_name),
+        $cmd = array_merge($cmd, [
             '-e',
             '-q',
             '-c',
@@ -57,8 +60,8 @@ class Fping
             $interval,
             '-t',
             max($timeout, $interval),
-            $host
-        ];
+            $host,
+        ]);
 
         $process = app()->make(Process::class, ['command' => $cmd]);
         Log::debug('[FPING] ' . $process->getCommandLine() . PHP_EOL);
@@ -75,12 +78,12 @@ class Fping
         }
 
         $response = [
-            'xmt'  => (int)$xmt,
-            'rcv'  => (int)$rcv,
-            'loss' => (int)$loss,
-            'min'  => (float)$min,
-            'max'  => (float)$max,
-            'avg'  => (float)$avg,
+            'xmt'  => (int) $xmt,
+            'rcv'  => (int) $rcv,
+            'loss' => (int) $loss,
+            'min'  => (float) $min,
+            'max'  => (float) $max,
+            'avg'  => (float) $avg,
             'dup'  => substr_count($output, 'duplicate'),
             'exitcode' => $process->getExitCode(),
         ];

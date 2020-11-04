@@ -17,22 +17,19 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * @package    LibreNMS
  * @link       http://librenms.org
  * @copyright  2016 Tony Murray
  * @author     Tony Murray <murraytony@gmail.com>
  */
 
 use LibreNMS\Config;
-use LibreNMS\DB\Eloquent;
-use LibreNMS\Exceptions\DatabaseConnectException;
 use LibreNMS\Util\Snmpsim;
 
 $install_dir = realpath(__DIR__ . '/..');
 
-$init_modules = array('web', 'discovery', 'polling', 'nodb');
+$init_modules = ['web', 'discovery', 'polling', 'nodb'];
 
-if (!getenv('SNMPSIM')) {
+if (! getenv('SNMPSIM')) {
     $init_modules[] = 'mocksnmp';
 }
 
@@ -44,7 +41,7 @@ ini_set('display_errors', 1);
 
 $snmpsim = new Snmpsim('127.1.6.2', 1162, null);
 if (getenv('SNMPSIM')) {
-    $snmpsim->fork();
+    $snmpsim->fork(6);
 
     // make PHP hold on a reference to $snmpsim so it doesn't get destructed
     register_shutdown_function(function (Snmpsim $ss) {
@@ -56,9 +53,14 @@ if (getenv('DBTEST')) {
     global $migrate_result, $migrate_output;
 
     // create testing table if needed
-    $db_config = \config("database.connections.testing");
+    $db_config = \config('database.connections.testing');
     $connection = new PDO("mysql:host={$db_config['host']}", $db_config['username'], $db_config['password']);
-    $connection->query("CREATE DATABASE IF NOT EXISTS {$db_config['database']} CHARACTER SET utf8 COLLATE utf8_unicode_ci");
+    $result = $connection->query("CREATE DATABASE IF NOT EXISTS {$db_config['database']} CHARACTER SET utf8 COLLATE utf8_unicode_ci");
+    if ($connection->errorCode() == '42000') {
+        echo implode(' ', $connection->errorInfo()) . PHP_EOL;
+        echo "Either create database {$db_config['database']} or populate DB_TEST_USERNAME and DB_TEST_PASSWORD in your .env with credentials that can" . PHP_EOL;
+        exit(1);
+    }
     unset($connection); // close connection
 
     // sqlite db file
@@ -68,8 +70,8 @@ if (getenv('DBTEST')) {
 
     // try to avoid erasing people's primary databases
     if ($db_config['database'] !== \config('database.connections.mysql.database', 'librenms')) {
-        if (!getenv('SKIP_DB_REFRESH')) {
-            echo "Refreshing database...";
+        if (! getenv('SKIP_DB_REFRESH')) {
+            echo 'Refreshing database...';
             $migrate_result = Artisan::call('migrate:fresh', ['--seed' => true, '--env' => 'testing', '--database' => 'testing']);
             $migrate_output = Artisan::output();
             echo "done\n";

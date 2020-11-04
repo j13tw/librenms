@@ -7,14 +7,14 @@
                     "sysObjectID": ".1.3.6.1.4.1.3807.1.582815",
                     "sysDescr": "S5800 FHN USP (R) Software, Version V210R240,Hw Version 2.0,Copyrig",
                     "sysContact": null,
-                    "version": null,
-                    "hardware": null,
-                    "features": null,
+                    "version": "V210R240",
+                    "hardware": "S5800 FHN USP",
+                    "features": "2.0",
                     "os": "fiberhome-switch",
                     "type": "network",
                     "serial": null,
                     "icon": "fiberhome.svg",
-                    "location": null
+                    "location": "<private>"
                 }
             ]
         },
@@ -26,8 +26,8 @@
                     "sysDescr": "S5800 FHN USP (R) Software, Version V210R240,Hw Version 2.0,Copyrig",
                     "sysContact": "<private>",
                     "version": "V210R240",
-                    "hardware": "FHN S5800 V 2.0",
-                    "features": null,
+                    "hardware": "S5800 FHN USP",
+                    "features": "2.0",
                     "os": "fiberhome-switch",
                     "type": "network",
                     "serial": null,
@@ -408,45 +408,9 @@
                     "processor_descr": "Cpu-1/0/1",
                     "processor_precision": 100,
                     "processor_perc_warn": 75
-                },
-                {
-                    "entPhysicalIndex": 0,
-                    "hrDeviceIndex": 0,
-                    "processor_oid": ".1.3.6.1.4.1.3807.1.8012.1.4.1.1.2.",
-                    "processor_index": "",
-                    "processor_type": "fiberhome-switch",
-                    "processor_usage": 0,
-                    "processor_descr": "cpuIndexDescr",
-                    "processor_precision": 100,
-                    "processor_perc_warn": 75
                 }
             ]
         },
-        "poller": {
-            "processors": [
-                {
-                    "entPhysicalIndex": 0,
-                    "hrDeviceIndex": 0,
-                    "processor_oid": ".1.3.6.1.4.1.3807.1.8012.1.4.1.1.2.3222475008",
-                    "processor_index": "3222475008",
-                    "processor_type": "fiberhome-switch",
-                    "processor_usage": 0,
-                    "processor_descr": "Cpu-1/0/1",
-                    "processor_precision": 100,
-                    "processor_perc_warn": 75
-                },
-                {
-                    "entPhysicalIndex": 0,
-                    "hrDeviceIndex": 0,
-                    "processor_oid": ".1.3.6.1.4.1.3807.1.8012.1.4.1.1.2.",
-                    "processor_index": "",
-                    "processor_type": "fiberhome-switch",
-                    "processor_usage": 0,
-                    "processor_descr": "cpuIndexDescr",
-                    "processor_precision": 100,
-                    "processor_perc_warn": 75
-                }
-            ]
-        }
+        "poller": "matches discovery"
     }
 }

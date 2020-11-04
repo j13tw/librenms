@@ -9,9 +9,6 @@
  */
 
 use Illuminate\Support\Str;
-use LibreNMS\Config;
-
-$fallback_db_config = Config::getDatabaseSettings();
 
 return [
 
@@ -56,13 +53,12 @@ return [
 
         'mysql' => [
             'driver' => 'mysql',
-            'url' => env('DATABASE_URL'),
-            'host' => env('DB_HOST', $fallback_db_config['db_host']),
-            'port' => env('DB_PORT', $fallback_db_config['db_port']),
-            'database' => env('DB_DATABASE', $fallback_db_config['db_name']),
-            'username' => env('DB_USERNAME', $fallback_db_config['db_user']),
-            'password' => env('DB_PASSWORD', $fallback_db_config['db_pass']),
-            'unix_socket' => env('DB_SOCKET', $fallback_db_config['db_socket']),
+            'host' => env('DB_HOST', 'localhost'),
+            'port' => env('DB_PORT', '3306'),
+            'database' => env('DB_DATABASE', 'librenms'),
+            'username' => env('DB_USERNAME', 'librenms'),
+            'password' => env('DB_PASSWORD', ''),
+            'unix_socket' => env('DB_SOCKET', ''),
             'charset' => 'utf8',
             'collation' => 'utf8_unicode_ci',
             'prefix' => '',
@@ -129,7 +125,7 @@ return [
             'database' => storage_path('testing.sqlite'),
             'prefix' => '',
             'foreign_key_constraints' => true,
-        ]
+        ],
 
     ],
 
@@ -159,11 +155,11 @@ return [
 
     'redis' => [
 
-        'client' => env('REDIS_CLIENT', 'phpredis'),
+        'client' => env('REDIS_CLIENT', 'predis'),
 
         'options' => [
             'cluster' => env('REDIS_CLUSTER', 'redis'),
-            'prefix' => env('REDIS_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_').'_database_'),
+            'prefix' => env('REDIS_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_') . '_database_'),
         ],
 
         'default' => [

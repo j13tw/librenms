@@ -25,6 +25,7 @@ the values we expect to see the data in:
 | frequency                       | Hz                          |
 | humidity                        | %                           |
 | load                            | %                           |
+| loss                            | %                           |
 | power                           | W                           |
 | power_consumed                  | kWh                         |
 | power_factor                    | ratio                       |
@@ -37,6 +38,7 @@ the values we expect to see the data in:
 | temperature                     | C                           |
 | voltage                         | V                           |
 | waterflow                       | l/m                         |
+| percent                         | %                           |
 
 #### Simple health discovery
 
@@ -61,7 +63,7 @@ modules:
     sensors:
         airflow:
             options:
-                skip_values_lt: 0
+                skip_value_lt: 0
             data:
                 -
                     oid: airFlowSensorTable
@@ -160,7 +162,7 @@ $index="1.20", then $subindex0="1" and $subindex1="20".
 >
 > =, !=, ==, !==, <=, >=, <, >,
 > starts, ends, contains, regex, in_array, not_starts,
-> not_ends, not_contains, not_regex, not_in_array
+> not_ends, not_contains, not_regex, not_in_array, exists
 >
 > Example:
 
@@ -170,6 +172,14 @@ $index="1.20", then $subindex0="1" and $subindex1="20".
                       oid: sensorName
                       op: 'not_in_array'
                       value: ['sensor1', 'sensor2']
+```
+
+```yaml
+                    skip_values:
+                    -
+                      oid: sensorOptionalOID
+                      op: 'exists'
+                      value: false
 ```
 
 If you aren't able to use yaml to perform the sensor discovery, you
@@ -447,6 +457,7 @@ Chromatic_dispersion:
 Ber:
 Eer:
 Waterflow:
+Percent:
 
 >> Runtime for discovery module 'sensors': 3.9340 seconds with 190024 bytes
 >> SNMP: [16/3.89s] MySQL: [36/0.03s] RRD: [0/0.00s]
